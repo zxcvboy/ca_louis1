@@ -1,0 +1,32 @@
+# Generated manifest.yml based on template version 0.1.0
+# appName = ca_louis1
+# language=java
+# multiTenant=false
+---
+applications:
+# -----------------------------------------------------------------------------------
+# Backend Service
+# -----------------------------------------------------------------------------------
+- name: ca_louis1-srv
+  random-route: true  # for development only
+  path: srv/target/ca_louis1-exec.jar
+  memory: 1G
+  disk_quota: 512M
+  env:
+    SPRING_PROFILES_ACTIVE: cloud
+  buildpack: java_buildpack
+  services:
+  - ca_louis1-db
+
+# -----------------------------------------------------------------------------------
+# HANA Database Content Deployer App
+# -----------------------------------------------------------------------------------
+- name: ca_louis1-db-deployer
+  path: db
+  no-route: true
+  health-check-type: process
+  memory: 256M
+  instances: 1
+  buildpack: nodejs_buildpack
+  services:
+  - ca_louis1-db
