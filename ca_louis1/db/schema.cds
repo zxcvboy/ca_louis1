@@ -32,7 +32,7 @@ entity PO_HEADER : managed {
 }
 
 entity PO_ITEMS : managed {
-    POITEM_ID     : UUID;
+    @id key POITEM_ID     : UUID;
     PO_NO         : String;
     ITEM_NO       : Integer;
     MATERIAL_NO   : String;

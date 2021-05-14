@@ -1,5 +1,6 @@
 package customer.ca_louis1;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -108,6 +109,88 @@ public class MyController {
 			 throw new RuntimeException(e); 
 		} 
          
+    }
+    @PreAuthorize("permitAll()")
+    @PostMapping(value = "/PO/createPO_Form", produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseBody
+    public String updateDeptUI5(@RequestBody ZPoForm inputPO) {  
+        
+    	String rtn = "";
+    	 try {  
+    			
+			 rtn = createPO(inputPO); 				
+       } catch (Exception e) {  
+           rtn =e.getMessage();
+       }  
+    	 return rtn;
+    }
+    public String createPO(ZPoForm inputPO)
+    {   
+            String rtn = "";
+            try {  
+                   ZPoHeader input_PO_HEADER = inputPO.getPO_HEADER();
+                   List<ZPoItem> input_PO_ITEMS = inputPO.getPO_ITEMS();
+
+                   if(input_PO_HEADER!=null)
+                   {
+                        PoHeader tmp_PO_HEADER = PoHeader.create();
+                        tmp_PO_HEADER =convertPO_HEADER(tmp_PO_HEADER,input_PO_HEADER);
+                       
+                        CqnUpsert upsert_PO_HEADER = Upsert.into(PoHeader_.class).entry(tmp_PO_HEADER);
+                        
+                        db.run(upsert_PO_HEADER);
+                   }
+                   if(input_PO_ITEMS!=null)
+                   {
+                        for(int i=0;i<input_PO_ITEMS.size();i++)
+                        {
+                            ZPoItem input_PO_ITEM_i = input_PO_ITEMS.get(i);
+                            PoItems tmp_PO_ITEM = PoItems.create();
+                            tmp_PO_ITEM = convertPO_ITEM(tmp_PO_ITEM,input_PO_ITEM_i);
+                             CqnUpsert upsert_PO_ITEM = Upsert.into(PoItems_.class).entry(tmp_PO_ITEM);
+                             db.run(upsert_PO_ITEM);
+                        }
+                   }
+                   rtn ="S";
+                  	
+            } catch (Exception e) {  
+                rtn =e.getMessage();
+            }  
+                return rtn;
+    }
+    private PoHeader convertPO_HEADER(PoHeader tmp_PO_HEADER, ZPoHeader input_PO_HEADER)
+    {
+        tmp_PO_HEADER.setCompCd(input_PO_HEADER.getCOMP_CD());
+        tmp_PO_HEADER.setCurrency(input_PO_HEADER.getCURRENCY());
+        tmp_PO_HEADER.setFormType(input_PO_HEADER.getFORM_TYPE());
+        //tmp_PO_HEADER.setPoId();
+        tmp_PO_HEADER.setPoNo(input_PO_HEADER.getPO_NO());
+        tmp_PO_HEADER.setPurGrp(input_PO_HEADER.getPUR_GRP());
+        tmp_PO_HEADER.setPurOrg(input_PO_HEADER.getPUR_ORG());
+        tmp_PO_HEADER.setRemark(input_PO_HEADER.getREMARK());
+        tmp_PO_HEADER.setVendorId(input_PO_HEADER.getVENDOR_ID());
+        tmp_PO_HEADER.setVendorName(input_PO_HEADER.getVENDOR_NAME());
+
+        return tmp_PO_HEADER;
+    }
+    private PoItems convertPO_ITEM(PoItems tmp_PO_Item, ZPoItem input_PO_ITEM_i)
+    {
+        if(input_PO_ITEM_i.getDELIVERY_DATE()!=null)
+        {
+            tmp_PO_Item.setDeliveryDate(input_PO_ITEM_i.getDELIVERY_DATE().toInstant());
+        }
+        
+        tmp_PO_Item.setFlag(input_PO_ITEM_i.getFLAG());
+        tmp_PO_Item.setItemNo(Integer.valueOf(input_PO_ITEM_i.getITEM_NO()));
+        tmp_PO_Item.setMaterialDesp(input_PO_ITEM_i.getMATERIAL_DESP());
+        tmp_PO_Item.setMaterialNo(input_PO_ITEM_i.getMATERIAL_NO());
+       tmp_PO_Item.setPoNo(input_PO_ITEM_i.getPO_NO());
+       //tmp_PO_Item.setPoitemId();
+       tmp_PO_Item.setQty(new BigDecimal(input_PO_ITEM_i.getQTY()));
+       tmp_PO_Item.setUnit(input_PO_ITEM_i.getUNIT());
+       tmp_PO_Item.setUnitPrice(new BigDecimal(input_PO_ITEM_i.getUNIT_PRICE()));
+    
+        return tmp_PO_Item;
     }
     public ZPoForm getPo(java.lang.String PO_NO)
     {
