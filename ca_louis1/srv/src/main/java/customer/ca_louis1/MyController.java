@@ -1,23 +1,29 @@
 package customer.ca_louis1;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.GregorianCalendar;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import com.nimbusds.jose.util.JSONObjectUtils;
 import com.sap.cds.Result;
 import com.sap.cds.Row;
 import com.sap.cds.Struct;
@@ -29,7 +35,27 @@ import com.sap.cds.ql.cqn.CqnUpsert;
 import com.sap.cds.services.ErrorStatuses;
 import com.sap.cds.services.ServiceException;
 import com.sap.cds.services.persistence.PersistenceService;
+import com.sap.cloud.sdk.cloudplatform.connectivity.DestinationAccessor;
+import com.sap.cloud.sdk.cloudplatform.connectivity.HttpClientAccessor;
+import com.sap.cloud.sdk.cloudplatform.connectivity.HttpClientFactory;
+import com.sap.cloud.sdk.cloudplatform.connectivity.HttpDestination;
+import com.sap.cloud.sdk.services.scp.workflow.cf.api.WorkflowDefinitionsApi;
+import com.sap.cloud.sdk.services.scp.workflow.cf.api.WorkflowInstancesApi;
+import com.sap.cloud.sdk.services.scp.workflow.cf.model.WorkflowDefinition;
+import com.sap.cloud.sdk.services.scp.workflow.cf.model.WorkflowInstance;
+import com.sap.cloud.sdk.services.scp.workflow.cf.model.WorkflowInstanceStartPayload;
+import com.sap.cloud.security.xsuaa.token.Token;
 
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpHeaders;
+import org.apache.http.HttpResponse;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.util.EntityUtils;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -37,6 +63,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.User;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -49,9 +76,13 @@ import cds.gen.z.sap.com.cap.odata.PoItems;
 import cds.gen.z.sap.com.cap.odata.PoItems_;
 import cds.gen.z.sap.com.cap.odata.Products;
 import cds.gen.z.sap.com.cap.odata.Products_;
+import customer.ca_louis1.zstructure.ZJobLog;
 import customer.ca_louis1.zstructure.ZPoForm;
 import customer.ca_louis1.zstructure.ZPoHeader;
 import customer.ca_louis1.zstructure.ZPoItem;
+import customer.ca_louis1.zstructure.ZResult;
+import customer.ca_louis1.zstructure.ZSoHeader;
+import net.minidev.json.JSONUtil;
 
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -65,6 +96,8 @@ public class MyController {
     PersistenceService db;
     @Autowired
     XsuaaUserInfo xsuaaUserInfo;
+    @Autowired
+    JwtDecoder jwtDecoder;
 
     @PreAuthorize("permitAll()")
     @GetMapping("/test")
@@ -72,6 +105,14 @@ public class MyController {
     public String SayHello() {
 
         return "Hello Rest";
+    }
+
+    @PreAuthorize("permitAll()")
+    @GetMapping("/getCurrentUser")
+    @ResponseBody
+    public Token getCurrentUser(@AuthenticationPrincipal Token token) {
+
+        return token;
     }
 
     @PreAuthorize("permitAll()")
@@ -113,20 +154,96 @@ public class MyController {
     @PreAuthorize("permitAll()")
     @PostMapping(value = "/PO/createPO_Form", produces = MediaType.APPLICATION_JSON_VALUE)
     @ResponseBody
-    public String updateDeptUI5(@RequestBody ZPoForm inputPO) {  
+    public ZResult updateDeptUI5(@RequestBody ZPoForm inputPO) {  
         
-    	String rtn = "";
+    	ZResult rtn = new ZResult();
     	 try {  
     			
 			 rtn = createPO(inputPO); 				
        } catch (Exception e) {  
-           rtn =e.getMessage();
+           rtn.setStatus("E");
+           rtn.setMessage(e.getMessage());
        }  
     	 return rtn;
     }
-    public String createPO(ZPoForm inputPO)
+    @PreAuthorize("permitAll()")  
+    @GetMapping(value = "/job/SO_JOB", produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseBody  
+    public List<ZJobLog> SO_JOB() { 
+
+        List<ZJobLog> rtn = new ArrayList();
+        Date now = new Date();
+        String Status ="";
+        String Message="scheduler job started";
+        String ExecuteTime = now.toGMTString();
+        String FormNo="";
+        rtn.add(new ZJobLog(Status, Message, ExecuteTime, FormNo));
+        try {
+              String  definitionId = "po_approval";
+              JSONObject context = new JSONObject();
+              context.put("FORM_TYPE", "PO");
+              context.put("PO_NO", "0000023");
+              //context.toString();
+                 WorkflowInstance rtn_startWorkflow = startWorkflow(definitionId,context);
+               if(rtn_startWorkflow!=null)
+               {
+                  rtn.add( new ZJobLog(Status,"啟動流程成功 Id:"+rtn_startWorkflow.getId()+", "+rtn_startWorkflow.toString(), new Date().toGMTString(), context.toString()));
+               }
+              List<ZSoHeader> so_list = getSOList();
+              for(int i=0;i<so_list.size();i++)
+              {
+                    rtn.add(new ZJobLog(Status, so_list.get(i).toString(), new Date().toGMTString(), so_list.get(i).getId()+""));  
+              }
+         
+			
+		} catch (Exception e) {
+			e.printStackTrace();
+			 throw new RuntimeException(e); 
+        } 
+        return rtn;
+         
+    }
+    public WorkflowInstance startWorkflow(String definitionId, JSONObject context) {
+        HttpDestination httpDestination_workflow = DestinationAccessor.getDestination("dest_workflow_runtime2").asHttp();
+        WorkflowInstance rtn =null;
+        try {
+                WorkflowInstanceStartPayload body = new WorkflowInstanceStartPayload();
+                body.setDefinitionId(definitionId);
+                HashMap<String, Object> map = new Gson().fromJson(context.toString(), HashMap.class);
+                 //Object tmp = new WorkflowInstancesApi(httpDestination_workflow).getInstanceContext("ec2c0b63-f9ad-11eb-af32-eeee0a9e1247");
+                 body.setContext(map);
+                 WorkflowInstance tmp_workflowInstance = new WorkflowInstancesApi(httpDestination_workflow).startInstance(body);
+                rtn =tmp_workflowInstance;
+               
+                
+        } catch (Exception e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+            
+        }
+         return rtn;
+
+    }
+    @PreAuthorize("permitAll()")
+    @GetMapping("/getWorkflowDefinitions")
+    @ResponseBody
+    public List<WorkflowDefinition> getWorkflowDefinitions(@AuthenticationPrincipal Token token) {
+        HttpDestination httpDestination_workflow = DestinationAccessor.getDestination("dest_workflow_runtime2").asHttp();
+        List<WorkflowDefinition> rtn = new ArrayList();
+        try {
+                List<WorkflowDefinition> workflowDefinitions = new WorkflowDefinitionsApi(httpDestination_workflow).queryDefinitions();
+                return workflowDefinitions;
+                
+        } catch (Exception e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+        return rtn;
+
+    }
+    public ZResult createPO(ZPoForm inputPO)
     {   
-            String rtn = "";
+            ZResult rtn = new ZResult();
             try {  
                    ZPoHeader input_PO_HEADER = inputPO.getPO_HEADER();
                    List<ZPoItem> input_PO_ITEMS = inputPO.getPO_ITEMS();
@@ -151,10 +268,12 @@ public class MyController {
                              db.run(upsert_PO_ITEM);
                         }
                    }
-                   rtn ="S";
+                   rtn.setStatus("S");
+                   rtn.setMessage("");
                   	
             } catch (Exception e) {  
-                rtn =e.getMessage();
+                rtn.setStatus("E");
+                   rtn.setMessage(e.getMessage());
             }  
                 return rtn;
     }
@@ -298,6 +417,47 @@ public class MyController {
        {
            return null;
        }
+    }
+    private List<ZSoHeader> getSOList()
+    {
+        HttpDestination httpDestination_Northwind_OrderList = DestinationAccessor.getDestination("Northwind_OrderList").asHttp();
+        List<ZSoHeader> rtn = new ArrayList();
+        HttpClient hc =  HttpClientAccessor.getHttpClient(httpDestination_Northwind_OrderList);
+        HttpGet request = new HttpGet("/orders.json");
+        
+            // add request headers
+            // request.addHeader("custom-key", "mkyong");
+            // request.addHeader(HttpHeaders.USER_AGENT, "Googlebot");
+
+            HttpResponse response;
+            try {
+                response = hc.execute(request);
+                HttpEntity entity = response.getEntity();
+                if (entity != null) {
+                    // return it as a String
+                    String result = EntityUtils.toString(entity);
+                    //rtn = result;
+                    // parsing JSON
+                JSONObject js_result = new JSONObject(result); //Convert String to JSON Object
+
+                    JSONArray entityList = js_result.getJSONArray("results");
+                    for(int i=0;i<entityList.length();i++)
+                    {
+                        JSONObject tmpEntity = entityList.getJSONObject(i).getJSONObject("order");
+                        ObjectMapper objectMapper=new ObjectMapper();
+                        ZSoHeader tmp_ZSoHeader=objectMapper.readValue(tmpEntity.toString(),ZSoHeader.class);
+                        rtn.add(tmp_ZSoHeader);
+                    }
+              
+                }
+            } catch (Exception e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            } 
+             
+
+            
+        return rtn;
     }
 }
 

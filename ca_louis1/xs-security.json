@@ -1,0 +1,12 @@
+{
+  "xsappname": "ca_louis1-cds",
+  "tenant-mode": "dedicated",
+  "scopes": [{
+    "name": "$XSAPPNAME.JOBSCHEDULER",
+    "description": "Job Scheduler Scope",
+    "grant-as-authority-to-apps": ["$XSSERVICENAME(Job_Louis)"]
+    }],
+  "attributes": [],
+  "role-templates": []
+  
+}
